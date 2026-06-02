@@ -16,6 +16,8 @@ models/*.joblib
 models/*.pkl
 models/*.json
 models/*.txt
+# Fine-tuned transformer (HF directory format, ~500MB) — never commit; retrain instead.
+models/sentiment_transformer/
 
 # Generated processed data
 data/processed/*.csv

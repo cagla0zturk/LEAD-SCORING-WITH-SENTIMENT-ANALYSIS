@@ -6,15 +6,16 @@ uçtan uca bir sistem. İki sinyali birleştirir:
 1. **Lead Scoring** — bir lead'in kazanılma (`Converted`) olasılığını tahmin eden, kalibre
    edilmiş bir gradient boosting modeli.
 2. **Engagement Sentiment / Intent** — lead ile yapılan etkileşim metinlerinin (TR + EN)
-   tonunu/niyetini 4 sınıfa ayıran bir bileşen.
+   tonunu/niyetini 4 sınıfa ayıran, **fine-tune edilmiş çok dilli transformer**
+   (`distilbert-base-multilingual-cased`, XLM-R'a geçilebilir).
 
-Bu ikisi tek bir **öncelik skoruna** birleşir; sabah dashboard'da "şu 5 lead'i bugün ara,
-bu üçü soğuyor" aksiyonunu mümkün kılar.
+Bu ikisi tek bir **öncelik skoruna** birleşir ve sabah dashboard'ında
+(`GET /dashboard/brief`) **"şu 5 lead'i bugün ara, bu üçü soğuyor"** aksiyonunu üretir.
 
 > **Not (genişlik vs derinlik):** Görevdeki "derinliği genişliğe tercih ederiz" yönergesine
-> uyarak, lead scoring (kalibrasyon + lift/gain + leakage) ve servis/MLOps katmanlarında
-> derinleştik; sentiment tarafını **bilinçli olarak hafif** (TF-IDF + LogReg, sentetik veri)
-> tuttuk. Gerekçesi ve nasıl ilerletileceği aşağıda "Sentiment" ve "Future work" bölümlerinde.
+> uyarak, lead scoring (kalibrasyon + lift/gain + leakage), sentiment (çok dilli transformer
+> fine-tune) ve servis/dashboard katmanlarında derinleştik. Sentiment verisinin **sentetik**
+> olması bilinçli bir kısıt; bunun sonuçları "Sentiment" bölümünde dürüstçe tartışıldı.
 
 ---
 
@@ -44,9 +45,11 @@ bu üçü soğuyor" aksiyonunu mümkün kılar.
                                                              ├──►│  Priority      │  priority_score
                  ┌──────────────────────────┐               │   │  (weighted +   │  + tier
   interaction    │  Sentiment/Intent         │ sentiment_score│  │  reachability) │
-  text (TR/EN) ──►  (TF-IDF word+char →      │──────────────┘   └───────────────┘
-                 │   LogisticRegression)     │
+  text (TR/EN) ──►  (fine-tuned multilingual │──────────────┘   └───────────────┘
+                 │   DistilBERT / XLM-R)     │
                  └──────────────────────────┘
+
+  Dashboard:  GET /dashboard/brief  →  { call_today: [...],  cooling: [...] }
 ```
 
 Eğitim/keşif (EDA, deneyler) `notebooks/` içinde; **servis edilebilir kısım**
@@ -58,16 +61,17 @@ import eder; notebook'tan kopyalanmış tek dosyalık servis **yoktur**.
 ## Hızlı başlangıç
 
 ```bash
-# 1) Bağımlılıklar + paket (editable)
+# 1) Bağımlılıklar + paket (editable). requirements.txt PyTorch'un CPU build'ini çeker.
 pip install -r requirements.txt
 pip install -e .
 
 # 2) Veriyi hazırla (Leads.csv yoksa indirir; sentetik etkileşimleri ve demo lead'leri üretir)
 python -m scripts.prepare_data
 
-# 3) Modelleri eğit (LogReg baseline + LightGBM tuning + kalibrasyon + sentiment)
-python -m scripts.train_all          # ~10-15 sn (4 CPU), grafikleri reports/ altına yazar
-#   python -m scripts.train_all --quick --no-plots   # hızlı smoke run
+# 3) Modelleri eğit: LightGBM (~10-15 sn) + transformer fine-tune (CPU'da ~3 dk; ilk çalıştırmada
+#    DistilBERT-multilingual ~540MB indirilir). Grafikleri reports/ altına yazar.
+python -m scripts.train_all
+#   python -m scripts.train_all --quick --no-plots   # lead-scoring araması için hızlı mod
 
 # 4) API'yi çalıştır
 uvicorn lead_priority.api.main:app --host 0.0.0.0 --port 8000
@@ -83,8 +87,8 @@ python -m pytest -q
 ### Docker
 
 ```bash
-docker build -t lead-priority:latest .   # imaj build sırasında veriyi hazırlar + modeli eğitir
-docker run --rm -p 8000:8000 lead-priority:latest
+docker build -t lead-priority:latest .   # build: veri hazırlar + LightGBM + transformer fine-tune
+docker run --rm -p 8000:8000 lead-priority:latest   # (build, transformer indirme+fine-tune yüzünden birkaç dk)
 curl localhost:8000/health
 ```
 
@@ -106,8 +110,17 @@ curl -s -X POST localhost:8000/score -H 'Content-Type: application/json' -d '{
 {
   "conversion_probability": 0.9595, "conversion_prediction": 1,
   "sentiment": {"label": "positive_engagement", "scores": {...}, "sentiment_score": 0.98},
-  "priority": {"priority_score": 0.9656, "tier": "hot", "conversion_weight": 0.7, "reachable": true}
+  "priority": {"priority_score": 0.9656, "tier": "hot", "conversion_weight": 0.7, "reachable": true},
+  "is_cooling": false
 }
+```
+
+### Sabah brief'i (satış temsilcisi dashboard'ı)
+
+```bash
+curl -s "localhost:8000/dashboard/brief?n_call=5&n_cooling=3"
+# -> { "call_today": [ {lead_id, tier, priority_score, ...} x5 ],   # "bu 5'ini ara"
+#      "cooling":    [ {lead_id, conversion_probability, sentiment_label, ...} x3 ] }  # "bu 3'ü soğuyor"
 ```
 
 ---
@@ -127,10 +140,10 @@ src/lead_priority/
 │   ├── evaluate.py           # AUC/PR/Brier, gain/lift, calibration, grafikler
 │   └── model.py              # LeadScorer (serving wrapper)
 ├── sentiment/
-│   ├── train.py              # TF-IDF (word+char) -> LogisticRegression
-│   └── model.py              # SentimentClassifier (serving wrapper)
-├── priority/combine.py       # birleşik öncelik skoru (açıklanabilir, kurallı)
-└── api/                      # FastAPI: /score, /leads/top, /health + logging
+│   ├── train.py              # DistilBERT/XLM-R multilingual fine-tune (PyTorch)
+│   └── model.py              # SentimentClassifier (transformer serving wrapper, batch)
+├── priority/combine.py       # birleşik öncelik skoru + "cooling" (at-risk) tespiti
+└── api/                      # FastAPI: /score, /leads/top, /dashboard/brief, /health
 scripts/                      # prepare_data.py, train_all.py
 notebooks/01_eda_and_modeling.ipynb
 tests/                        # features, sentiment, priority, API testleri
@@ -253,22 +266,28 @@ Grafikler (`reports/`, `train_all` ile üretilir):
 4 sınıf: `positive_engagement` (ilgili, soru soruyor), `objection` (fiyat/zaman itirazı),
 `disengaged` (kısa, mesafeli), `neutral`.
 
-**Yaklaşım — TF-IDF (word 1-2gram + char 3-5gram) → Logistic Regression.** Neden bu
-(ve neden transformer değil):
+**Yaklaşım — önceden eğitilmiş çok dilli transformer + fine-tune.** Varsayılan model
+`distilbert-base-multilingual-cased` (135M); `config.SENTIMENT_BASE_MODEL` ile
+`xlm-roberta-base`'e tek satırda geçilebilir. `sentiment/train.py` PyTorch ile saf bir
+fine-tune döngüsü çalıştırır (HF `Trainer`'a bağımlı değil — şeffaf ve az bağımlılık).
 
-- **TR + EN karışımı** char n-gram'larla doğal şekilde ele alınır — dil tespiti veya
-  ayrı tokenizer gerekmez; Türkçenin eklemeli yapısına char n-gram dayanıklıdır. Eğitim
-  verisi hem TR hem EN şablonları içerir (notebook'ta dil dağılımı gösteriliyor).
-- **GPU yok**, veri **sentetik** ve şablon tabanlı; XLM-R/DistilBERT fine-tune burada çoğunlukla
-  şablonları ezberler, ~MB'lık bir TF-IDF modeli ise CPU'da saniyeler içinde, deterministik
-  ve servis-dostu sonuç verir. Görevin "küçük örnekte çalışabilirsiniz, nedenini açıklayın"
-  iznine uygun bilinçli bir trade-off.
+**Türkçe + İngilizce karışımı nasıl ele alınıyor:**
+- Model çok dilli bir **paylaşılan sub-word sözlüğü** ile ön-eğitilmiştir; TR ve EN aynı
+  temsil uzayına gömülür. "fiyatı yüksek buldu" ile "too expensive" birbirine yakın düşer.
+- **Dil tespiti / ayrı pipeline yok**: tek model her iki dili de işler. Eğitim verisi hem
+  TR hem EN şablonları içerir (notebook'ta dil dağılımı: ~yarı yarıya).
+- **Neden fine-tune > zero-shot:** göreve özgü 4 CRM niyetimiz için etiketimiz var; küçük,
+  hızlı ve kendi kendine yeten bir servis artefaktı, çok-GB'lık bir LLM'den daha uygun.
+- **GPU yok** kısıtı: DistilBERT-multilingual CPU'da 3 epoch ~**3 dk**'da fine-tune oluyor;
+  inference tek lead'de milisaniyeler, dashboard'da tüm lead'ler **tek batch forward**.
 
-**Dürüst caveat:** Sentetik test setinde accuracy/macro-F1 ≈ **1.0**. Bu *gerçek* bir başarı
-değil — metinler sınırlı sayıda şablondan üretildiği için sınıflar neredeyse lineer ayrılabilir.
-Gerçek müşteri yazışmalarında performansın çok daha düşük olmasını beklerdik. Bu yüzden bu
-sayıyı bir "model kalitesi" kanıtı olarak değil, **boru hattının uçtan uca çalıştığının**
-kanıtı olarak sunuyoruz. Gerçek etiketli veriyle nasıl ilerletileceği Future work'te.
+**Dürüst caveat (önemli):** Sentetik test setinde accuracy/macro-F1 ≈ **1.0**. Bu *gerçek*
+bir başarı değil — transformer da, TF-IDF de bu sınırlı şablon setini kolayca ezberler.
+Buradaki darboğaz **model değil, veri**: sentetik metin gerçek müşteri dilinin gürültüsünü,
+ironiyi, kod-değişimini (code-switching) içermez. Bu sayıyı "model kalitesi" değil,
+**boru hattının uçtan uca çalıştığının** kanıtı olarak sunuyoruz. Transformer'ı seçmemizin
+asıl değeri, **gerçek etiketli veri geldiğinde** (Future work) ezberden genellemeye geçişi
+mümkün kılmasıdır — TF-IDF'in tavanı çok daha düşüktür.
 
 `sentiment_score ∈ [0,1]`: sınıf olasılıklarının `config.SENTIMENT_PRIORITY_WEIGHT` ile
 beklenen değeri (positive=1.0, objection=0.55, neutral=0.40, disengaged=0.10). İtirazın
@@ -298,18 +317,26 @@ sönümlenir (arayamadığınız yüksek-olasılıklı lead aksiyon alınabilir 
 
 "Mükemmel formül" değil, **ürün sezgisi** hedeflendiği için bilinçle basit ve okunaklı.
 
+**"Soğuyan" (at-risk) lead tespiti.** Dashboard'ın "bu üçü soğuyor" yarısı için ayrı bir
+kural: lead **değerliydi** (P(convert) ≥ 0.45) ama son etkileşimi **disengaged/objection**
+ise `is_cooling=True`. Böylece rep, hiç sıcak olmamış lead'lerin peşinde koşmak yerine
+**kaybedilmek üzere olan değerli** fırsatları kurtarır (`priority/combine.py: is_cooling`).
+
 ---
 
 ## 5. API
 
-FastAPI, üç endpoint (Swagger: `/docs`):
+FastAPI, dört endpoint (Swagger: `/docs`):
 
 | Method | Path | Açıklama |
 |---|---|---|
 | `GET` | `/health` | Liveness + modeller yüklü mü |
-| `POST` | `/score` | Lead feature'ları + son etkileşim metni → P(convert) + sentiment + öncelik |
-| `GET` | `/leads/top?n=5` | Sahte lead listesini sıralar, en öncelikli N'i döner |
+| `POST` | `/score` | Lead feature'ları + son etkileşim metni → P(convert) + sentiment + öncelik + `is_cooling` |
+| `GET` | `/leads/top?n=5` | Lead listesini öncelik skoruna göre sıralar, en öncelikli N'i döner |
+| `GET` | `/dashboard/brief` | **Sabah brief'i**: `call_today` (bugün ara) + `cooling` (soğuyanlar) |
 
+- `/dashboard/brief` görevdeki senaryoyu doğrudan karşılar: "şu 5 lead'i bugün ara, bu üçü
+  soğuyor". Tüm lead'ler **tek batch** transformer + tek tahmin geçişiyle skorlanır.
 - Her istek **loglanır** (method, path, status, latency); `LOG_LEVEL` env ile ayarlanır.
 - Modeller startup'ta (lifespan) **bir kez** yüklenir; artefakt yoksa API ayağa kalkar ama
   ilgili endpoint'ler `503` döner (graceful degradation).
@@ -329,13 +356,15 @@ tüm preprocessing pipeline içinde sadece train'de fit edildi.
 - LightGBM + kalibrasyon: en iyi ayrım + güvenilir olasılık; biraz daha az şeffaf
   (SHAP ile telafi edilebilir). Tuning maliyetini düşürmek için iç-içe paralelliği kapattık
   (LightGBM `n_jobs=1`, arama `n_jobs=-1`) — aksi halde 4 CPU'da oversubscription kilitliyor.
-- Sentiment: TF-IDF+LogReg (hafif, CPU, deterministik) vs transformer (ağır, GPU). Sentetik
-  veri için hafif olan rasyonel seçim.
+- Sentiment: fine-tune edilmiş çok dilli **DistilBERT** (XLM-R'a geçilebilir). TR+EN'i tek
+  paylaşılan sözlükle ele alır; göreve özgü etiketlerimiz olduğu için fine-tune, zero-shot
+  LLM'e tercih edildi. CPU'da ~3 dk fine-tune; küçük, hızlı, self-contained artefakt.
 
 ### Sonuçlar
 LightGBM ROC-AUC **0.890** / PR-AUC **0.835** / Brier **0.129**; top-%20 capture **%46**,
 lift **2.3×**. Confusion matrix + gain + calibration grafikleri `reports/` altında.
-Sentiment sentetik metrikleri ~1.0 (yukarıdaki caveat geçerli).
+Sentiment (DistilBERT-multilingual fine-tune) sentetik test metrikleri ~1.0 — bu sayının
+neden gerçek başarı sayılmaması gerektiği [Sentiment](#3-sentiment--niyet-analizi) caveat'inde.
 
 ### Production'a girse — drift, retrain, feedback
 - **İzlenecek feature drift'i:** girdi dağılımları (`Lead Source`/`Lead Origin` mix,
@@ -378,8 +407,10 @@ Bu repoda fairness *altyapısı* (grup metrikleri) bir sonraki adım olarak işa
 
 - **Recency/frequency feature'ları:** gerçek zaman damgalı etkileşimlerle
   `days_since_last_contact`, `n_touches_last_7d`, etkileşim kanalı sıralaması.
-- **Gerçek etiketli sentiment + transformer:** rep'lerin etiketlediği gerçek yazışmalarla
-  XLM-R/DistilBERT fine-tune; aktif öğrenme ile etiket maliyetini düşürme.
+- **Gerçek etiketli sentiment:** transformer fine-tune altyapısı hazır (DistilBERT/XLM-R);
+  eksik olan tek şey gerçek, etiketli yazışma verisi. Rep'lerin etiketlediği gerçek metinlerle
+  fine-tune + **aktif öğrenme** ile etiket maliyetini düşürme; cooling kuralını öğrenilmiş
+  bir "risk" modeline yükseltme.
 - **SHAP açıklanabilirlik + fairness paneli:** `/score` yanıtına başlıca itici feature'lar;
   grup bazlı performans izleme.
 - **Maliyet-duyarlı eşik optimizasyonu:** temas maliyeti / müşteri değeri ile expected-value
