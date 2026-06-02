@@ -63,6 +63,21 @@ def test_top_leads_sorted(client):
     assert scores == sorted(scores, reverse=True)
 
 
+def test_morning_brief(client):
+    resp = client.get("/dashboard/brief?n_call=5&n_cooling=5")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_leads"] >= 1
+    # "call today" is sorted by priority and only contains reachable leads.
+    call = body["call_today"]
+    assert [c["priority_score"] for c in call] == sorted(
+        [c["priority_score"] for c in call], reverse=True
+    )
+    assert all(c["reachable"] for c in call)
+    # Every "cooling" lead is flagged at-risk.
+    assert all(c["is_cooling"] for c in body["cooling"])
+
+
 def test_conversion_weight_override_changes_priority(client):
     payload = {
         "features": {"TotalVisits": 5, "Total Time Spent on Website": 1000},

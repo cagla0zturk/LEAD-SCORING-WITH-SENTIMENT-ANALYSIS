@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lead_priority.priority.combine import combine_priority, priority_tier
+from lead_priority.priority.combine import combine_priority, is_cooling, priority_tier
 
 
 def test_weighted_blend_math():
@@ -33,3 +33,13 @@ def test_tier_boundaries():
     assert priority_tier(0.5) == "warm"
     assert priority_tier(0.3) == "cooling"
     assert priority_tier(0.1) == "cold"
+
+
+def test_cooling_flag():
+    # Promising lead that just went disengaged -> at risk.
+    assert is_cooling(0.8, "disengaged") is True
+    assert is_cooling(0.7, "objection") is True
+    # Low-value lead going quiet is not "cooling" (it was never hot).
+    assert is_cooling(0.2, "disengaged") is False
+    # Promising + positive is not cooling.
+    assert is_cooling(0.9, "positive_engagement") is False
