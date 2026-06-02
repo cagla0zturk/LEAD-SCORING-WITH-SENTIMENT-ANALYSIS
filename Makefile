@@ -1,20 +1,24 @@
 .PHONY: install data train test serve docker-build docker-run clean
 
+# Use python3 by default (many systems do not ship a bare `python`). Override with:
+#   make train PYTHON=python
+PYTHON ?= python3
+
 install:
-	pip install -r requirements.txt
-	pip install -e .
+	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install -e .
 
 data:
-	python -m scripts.prepare_data
+	$(PYTHON) -m scripts.prepare_data
 
 train: data
-	python -m scripts.train_all
+	$(PYTHON) -m scripts.train_all
 
 train-quick: data
-	python -m scripts.train_all --quick --no-plots
+	$(PYTHON) -m scripts.train_all --quick --no-plots
 
 test:
-	python -m pytest -q
+	$(PYTHON) -m pytest -q
 
 serve:
 	uvicorn lead_priority.api.main:app --host 0.0.0.0 --port 8000 --reload

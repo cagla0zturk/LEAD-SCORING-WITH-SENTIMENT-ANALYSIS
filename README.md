@@ -60,25 +60,30 @@ import eder; notebook'tan kopyalanmış tek dosyalık servis **yoktur**.
 
 ## Hızlı başlangıç
 
+> Komutlarda `python3` kullanın. Bazı sistemlerde bare `python` komutu yoktur
+> (`bash: python: command not found`). Sisteminizde `python` çalışıyorsa onu da
+> kullanabilirsiniz; `Makefile` varsayılan olarak `python3` kullanır (`make train PYTHON=python`
+> ile değiştirilebilir).
+
 ```bash
 # 1) Bağımlılıklar + paket (editable). requirements.txt PyTorch'un CPU build'ini çeker.
-pip install -r requirements.txt
-pip install -e .
+python3 -m pip install -r requirements.txt
+python3 -m pip install -e .
 
 # 2) Veriyi hazırla (Leads.csv yoksa indirir; sentetik etkileşimleri ve demo lead'leri üretir)
-python -m scripts.prepare_data
+python3 -m scripts.prepare_data
 
 # 3) Modelleri eğit: LightGBM (~10-15 sn) + transformer fine-tune (CPU'da ~3 dk; ilk çalıştırmada
 #    DistilBERT-multilingual ~540MB indirilir). Grafikleri reports/ altına yazar.
-python -m scripts.train_all
-#   python -m scripts.train_all --quick --no-plots   # lead-scoring araması için hızlı mod
+python3 -m scripts.train_all
+#   python3 -m scripts.train_all --quick --no-plots   # lead-scoring araması için hızlı mod
 
-# 4) API'yi çalıştır
-uvicorn lead_priority.api.main:app --host 0.0.0.0 --port 8000
+# 4) API'yi çalıştır (port doluysa --port 8001 deneyin)
+python3 -m uvicorn lead_priority.api.main:app --host 0.0.0.0 --port 8000
 # Swagger UI:  http://localhost:8000/docs
 
 # 5) Testler
-python -m pytest -q
+python3 -m pytest -q
 ```
 
 `Makefile` kısayolları da var: `make install`, `make train`, `make test`, `make serve`,
