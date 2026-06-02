@@ -27,7 +27,8 @@ DEMO_LEADS_JSON: Final[Path] = PROCESSED_DATA_DIR / "demo_leads.json"
 
 # Trained artifacts
 SCORING_MODEL_PATH: Final[Path] = MODELS_DIR / "lead_scoring_model.joblib"
-SENTIMENT_MODEL_PATH: Final[Path] = MODELS_DIR / "sentiment_model.joblib"
+# The sentiment model is a fine-tuned HF transformer saved as a directory.
+SENTIMENT_MODEL_DIR: Final[Path] = MODELS_DIR / "sentiment_transformer"
 SCORING_METRICS_PATH: Final[Path] = MODELS_DIR / "lead_scoring_metrics.json"
 SENTIMENT_METRICS_PATH: Final[Path] = MODELS_DIR / "sentiment_metrics.json"
 
@@ -86,7 +87,7 @@ RAW_CATEGORICAL_FEATURES: Final[tuple[str, ...]] = (
 SELECT_SENTINEL: Final[str] = "Select"
 
 # --------------------------------------------------------------------------------------
-# Sentiment / intent labels
+# Sentiment / intent model (fine-tuned multilingual transformer)
 # --------------------------------------------------------------------------------------
 SENTIMENT_LABELS: Final[tuple[str, ...]] = (
     "positive_engagement",
@@ -94,6 +95,15 @@ SENTIMENT_LABELS: Final[tuple[str, ...]] = (
     "disengaged",
     "neutral",
 )
+
+# Base checkpoint to fine-tune. DistilBERT-multilingual is light enough for CPU; swap to
+# "xlm-roberta-base" for the stronger (heavier) XLM-R encoder mentioned in the brief.
+SENTIMENT_BASE_MODEL: Final[str] = "distilbert-base-multilingual-cased"
+SENTIMENT_MAX_LENGTH: Final[int] = 64
+SENTIMENT_EPOCHS: Final[int] = 3
+SENTIMENT_BATCH_SIZE: Final[int] = 16
+SENTIMENT_LEARNING_RATE: Final[float] = 5e-5
+SENTIMENT_N_PER_CLASS: Final[int] = 350
 
 # How each intent class nudges the combined priority score. Positive engagement is a
 # strong "call today" signal; disengagement cools a lead down; an objection is actually
@@ -113,3 +123,11 @@ TEST_SIZE: Final[float] = 0.2
 
 # Default blend weight for the combined priority score (see lead_priority.priority).
 DEFAULT_CONVERSION_WEIGHT: Final[float] = 0.7
+
+# --------------------------------------------------------------------------------------
+# Morning-brief / "cooling lead" heuristics (the sales-rep dashboard)
+# --------------------------------------------------------------------------------------
+# A lead is "cooling" (at-risk) when it WAS promising (high conversion probability) but the
+# latest interaction reads as disengaged/negative. These are the leads worth rescuing today.
+COOLING_MIN_CONVERSION_PROB: Final[float] = 0.45
+COOLING_SENTIMENT_LABELS: Final[tuple[str, ...]] = ("disengaged", "objection")

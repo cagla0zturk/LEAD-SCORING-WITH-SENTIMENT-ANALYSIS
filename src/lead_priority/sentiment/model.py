@@ -1,4 +1,4 @@
-"""Serving-time wrapper around the persisted sentiment/intent classifier."""
+"""Serving-time wrapper around the fine-tuned multilingual transformer."""
 
 from __future__ import annotations
 
@@ -7,9 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import joblib
+import torch
+import torch.nn.functional as F
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from lead_priority.config import SENTIMENT_MODEL_PATH, SENTIMENT_PRIORITY_WEIGHT
+from lead_priority.config import (
+    SENTIMENT_LABELS,
+    SENTIMENT_MAX_LENGTH,
+    SENTIMENT_MODEL_DIR,
+    SENTIMENT_PRIORITY_WEIGHT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,43 +38,70 @@ class SentimentPrediction:
 
 
 class SentimentClassifier:
-    """Predict engagement intent and a scalar ``sentiment_score`` from free text."""
+    """Predict engagement intent + a scalar ``sentiment_score`` with a fine-tuned transformer."""
 
-    def __init__(self, model: Any, labels: list[str]) -> None:
+    def __init__(self, model: Any, tokenizer: Any, labels: list[str], max_length: int) -> None:
         self._model = model
+        self._tokenizer = tokenizer
         self.labels = labels
+        self.max_length = max_length
+        self._model.eval()
 
     @classmethod
-    def load(cls, path: Path = SENTIMENT_MODEL_PATH) -> "SentimentClassifier":
+    def load(
+        cls, path: Path = SENTIMENT_MODEL_DIR, *, max_length: int = SENTIMENT_MAX_LENGTH
+    ) -> "SentimentClassifier":
         if not path.exists():
             raise FileNotFoundError(
                 f"Sentiment model not found at {path}. "
                 "Train it first with `python -m scripts.train_all`."
             )
-        artifact = joblib.load(path)
-        logger.info("Loaded sentiment model from %s", path)
-        return cls(model=artifact["model"], labels=list(artifact["labels"]))
+        tokenizer = AutoTokenizer.from_pretrained(path)
+        model = AutoModelForSequenceClassification.from_pretrained(path)
+        id2label = model.config.id2label
+        labels = [id2label[i] for i in range(len(id2label))]
+        logger.info("Loaded fine-tuned sentiment model from %s", path)
+        return cls(model=model, tokenizer=tokenizer, labels=labels, max_length=max_length)
 
     def _sentiment_score(self, scores: dict[str, float]) -> float:
         """Expected priority contribution = sum_c P(class=c) * weight(c)."""
         return float(sum(scores.get(c, 0.0) * w for c, w in SENTIMENT_PRIORITY_WEIGHT.items()))
 
+    def _neutral(self) -> SentimentPrediction:
+        scores = {c: 1.0 / len(self.labels) for c in self.labels}
+        return SentimentPrediction("neutral", scores, self._sentiment_score(scores))
+
+    @torch.no_grad()
+    def _forward(self, texts: list[str]) -> list[dict[str, float]]:
+        enc = self._tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+        probs = F.softmax(self._model(**enc).logits, dim=-1).cpu().numpy()
+        return [{self.labels[i]: float(p) for i, p in enumerate(row)} for row in probs]
+
     def predict(self, text: str) -> SentimentPrediction:
         text = (text or "").strip()
         if not text:
-            # No interaction yet -> neutral with an even-ish prior.
-            scores = {c: 1.0 / len(self.labels) for c in self.labels}
-            return SentimentPrediction(
-                label="neutral",
-                scores=scores,
-                sentiment_score=self._sentiment_score(scores),
-            )
-        proba = self._model.predict_proba([text])[0]
-        classes = list(self._model.classes_)
-        scores = {cls: float(p) for cls, p in zip(classes, proba)}
+            return self._neutral()
+        scores = self._forward([text])[0]
         label = max(scores, key=scores.get)
-        return SentimentPrediction(
-            label=label,
-            scores=scores,
-            sentiment_score=self._sentiment_score(scores),
-        )
+        return SentimentPrediction(label, scores, self._sentiment_score(scores))
+
+    def predict_batch(self, texts: list[str | None]) -> list[SentimentPrediction]:
+        """Vectorised prediction; empty/None texts map to a neutral prior.
+
+        Used by the dashboard so scoring N leads is a single transformer forward pass.
+        """
+        cleaned = [(t or "").strip() for t in texts]
+        non_empty_idx = [i for i, t in enumerate(cleaned) if t]
+        results: list[SentimentPrediction | None] = [None] * len(cleaned)
+        if non_empty_idx:
+            forwarded = self._forward([cleaned[i] for i in non_empty_idx])
+            for i, scores in zip(non_empty_idx, forwarded):
+                label = max(scores, key=scores.get)
+                results[i] = SentimentPrediction(label, scores, self._sentiment_score(scores))
+        return [r if r is not None else self._neutral() for r in results]
