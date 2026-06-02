@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from lead_priority.config import DEFAULT_CONVERSION_WEIGHT, DEMO_LEADS_JSON
-from lead_priority.priority.combine import combine_priority
+from lead_priority.priority.combine import combine_priority, is_cooling
 from lead_priority.scoring.model import LeadScorer
 from lead_priority.sentiment.model import SentimentClassifier
 
@@ -60,7 +60,6 @@ class PriorityService:
 
         conversion_probability = self.scorer.predict_proba(features)[0]
         conversion_prediction = int(conversion_probability >= self.scorer.threshold)
-
         sentiment_pred = self.sentiment.predict(interaction_text or "")
 
         priority = combine_priority(
@@ -75,30 +74,87 @@ class PriorityService:
             "conversion_prediction": conversion_prediction,
             "sentiment": sentiment_pred.as_dict(),
             "priority": priority.as_dict(),
+            "is_cooling": is_cooling(conversion_probability, sentiment_pred.label),
         }
 
     # -- dashboard ---------------------------------------------------------------------
-    def top_leads(
-        self, n: int = 5, *, conversion_weight: float | None = None
-    ) -> list[dict[str, Any]]:
-        """Score the demo lead list and return the top ``n`` by priority score."""
+    def _score_demo_leads(self, *, conversion_weight: float | None = None) -> list[dict[str, Any]]:
+        """Batch-score every demo lead (one transformer pass, one tree-model pass)."""
+        if not self.demo_leads:
+            return []
+        weight = DEFAULT_CONVERSION_WEIGHT if conversion_weight is None else conversion_weight
+
+        features_list = [lead.get("features", {}) for lead in self.demo_leads]
+        texts = [lead.get("interaction_text") for lead in self.demo_leads]
+
+        conv_probs = self.scorer.predict_proba(features_list)
+        sentiments = self.sentiment.predict_batch(texts)
+
         scored: list[dict[str, Any]] = []
-        for lead in self.demo_leads:
-            features = lead.get("features", {})
-            text = lead.get("interaction_text")
-            result = self.score_lead(features, text, conversion_weight=conversion_weight)
+        for lead, feats, prob, sent, text in zip(
+            self.demo_leads, features_list, conv_probs, sentiments, texts
+        ):
+            priority = combine_priority(
+                conversion_probability=prob,
+                sentiment_score=sent.sentiment_score,
+                conversion_weight=weight,
+                reachable=_is_reachable(feats),
+            )
             scored.append(
                 {
                     "lead_id": str(lead.get("lead_id", "unknown")),
-                    "conversion_probability": result["conversion_probability"],
-                    "sentiment_label": result["sentiment"]["label"],
-                    "priority_score": result["priority"]["priority_score"],
-                    "tier": result["priority"]["tier"],
+                    "conversion_probability": round(prob, 4),
+                    "sentiment_label": sent.label,
+                    "priority_score": priority.priority_score,
+                    "tier": priority.tier,
+                    "reachable": priority.reachable,
+                    "is_cooling": is_cooling(prob, sent.label),
                     "last_interaction": text,
                 }
             )
+        return scored
+
+    def top_leads(
+        self, n: int = 5, *, conversion_weight: float | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the top ``n`` leads by priority score (highest first)."""
+        scored = self._score_demo_leads(conversion_weight=conversion_weight)
         scored.sort(key=lambda r: r["priority_score"], reverse=True)
         return scored[: max(n, 0)]
+
+    def morning_brief(
+        self,
+        *,
+        n_call: int = 5,
+        n_cooling: int = 5,
+        conversion_weight: float | None = None,
+    ) -> dict[str, Any]:
+        """The sales-rep morning view: who to call today, and who is cooling off.
+
+        * ``call_today`` - top reachable leads by priority score ("şu 5 lead'i bugün ara").
+        * ``cooling``    - at-risk leads that were promising but read as disengaged /
+          objecting in their latest interaction ("bu üçü soğuyor"), ordered by how much
+          value is at stake (conversion probability).
+        """
+        scored = self._score_demo_leads(conversion_weight=conversion_weight)
+
+        call_today = sorted(
+            (r for r in scored if r["reachable"]),
+            key=lambda r: r["priority_score"],
+            reverse=True,
+        )[: max(n_call, 0)]
+
+        cooling = sorted(
+            (r for r in scored if r["is_cooling"]),
+            key=lambda r: r["conversion_probability"],
+            reverse=True,
+        )[: max(n_cooling, 0)]
+
+        return {
+            "call_today": call_today,
+            "cooling": cooling,
+            "total_leads": len(scored),
+        }
 
 
 def _load_demo_leads(path: Path) -> list[dict[str, Any]]:

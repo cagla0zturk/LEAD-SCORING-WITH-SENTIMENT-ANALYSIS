@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from lead_priority.api.logging_config import configure_logging
 from lead_priority.api.schemas import (
     HealthResponse,
+    MorningBriefResponse,
     ScoreRequest,
     ScoreResponse,
     TopLeadsResponse,
@@ -110,3 +111,20 @@ def top_leads(
     service = _get_service(request)
     leads = service.top_leads(n=n, conversion_weight=conversion_weight)
     return TopLeadsResponse(count=len(leads), leads=leads)
+
+
+@app.get("/dashboard/brief", response_model=MorningBriefResponse)
+def morning_brief(
+    request: Request,
+    n_call: int = Query(5, ge=1, le=100, description="How many leads to call today."),
+    n_cooling: int = Query(5, ge=1, le=100, description="How many cooling/at-risk leads."),
+    conversion_weight: float | None = Query(
+        None, ge=0.0, le=1.0, description="Override the conversion-vs-sentiment weight."
+    ),
+) -> MorningBriefResponse:
+    """The sales-rep morning brief: 'call these N today' + 'these are cooling off'."""
+    service = _get_service(request)
+    brief = service.morning_brief(
+        n_call=n_call, n_cooling=n_cooling, conversion_weight=conversion_weight
+    )
+    return MorningBriefResponse(**brief)

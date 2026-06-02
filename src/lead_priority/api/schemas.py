@@ -68,6 +68,7 @@ class ScoreResponse(BaseModel):
     conversion_prediction: int
     sentiment: SentimentResult
     priority: PriorityResult
+    is_cooling: bool
 
 
 class TopLead(BaseModel):
@@ -76,12 +77,22 @@ class TopLead(BaseModel):
     sentiment_label: str
     priority_score: float
     tier: str
+    reachable: bool = True
+    is_cooling: bool = False
     last_interaction: str | None = None
 
 
 class TopLeadsResponse(BaseModel):
     count: int
     leads: list[TopLead]
+
+
+class MorningBriefResponse(BaseModel):
+    """Output for ``GET /dashboard/brief`` — the sales-rep morning view."""
+
+    total_leads: int
+    call_today: list[TopLead]
+    cooling: list[TopLead]
 
 
 class HealthResponse(BaseModel):

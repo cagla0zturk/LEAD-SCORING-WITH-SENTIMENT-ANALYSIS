@@ -24,7 +24,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from lead_priority.config import DEFAULT_CONVERSION_WEIGHT
+from lead_priority.config import (
+    COOLING_MIN_CONVERSION_PROB,
+    COOLING_SENTIMENT_LABELS,
+    DEFAULT_CONVERSION_WEIGHT,
+)
 
 # Priority tiers for the dashboard ("call today" vs "let it cool").
 _TIER_BOUNDS: tuple[tuple[float, str], ...] = (
@@ -63,6 +67,20 @@ def priority_tier(score: float) -> str:
         if score >= bound:
             return name
     return "cold"
+
+
+def is_cooling(conversion_probability: float, sentiment_label: str) -> bool:
+    """Flag an *at-risk* ("soğuyan") lead: was promising, now disengaged/objecting.
+
+    This is the "bu üçü soğuyor" half of the dashboard. We deliberately key off a
+    high conversion probability (the lead has real value) combined with a negative
+    recent-interaction signal (it is slipping away), so reps rescue deals worth saving
+    rather than chasing leads that were never hot.
+    """
+    return (
+        conversion_probability >= COOLING_MIN_CONVERSION_PROB
+        and sentiment_label in COOLING_SENTIMENT_LABELS
+    )
 
 
 def combine_priority(
