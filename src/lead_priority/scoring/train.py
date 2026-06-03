@@ -222,6 +222,15 @@ def train_lead_scoring_model(
     SCORING_METRICS_PATH.write_text(json.dumps(metrics, indent=2))
     logger.info("Saved lead-scoring model to %s", SCORING_MODEL_PATH)
 
+    # --- Behavioral segmentation (KMeans) fitted on the full dataset --------------------
+    try:
+        from lead_priority.segmentation.cluster import train_segmentation_model
+
+        seg_metrics = train_segmentation_model(df=df)
+        metrics["behavioral_segments"] = seg_metrics.get("profiles", [])
+    except Exception as exc:  # pragma: no cover - segmentation is non-critical to scoring
+        logger.warning("Behavioral segmentation training skipped: %s", exc)
+
     if make_plots:
         reports_dir.mkdir(parents=True, exist_ok=True)
         ev.plot_gain_chart(gain_table, reports_dir / "gain_chart.png")

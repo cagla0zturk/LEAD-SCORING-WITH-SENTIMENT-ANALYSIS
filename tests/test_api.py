@@ -46,6 +46,11 @@ def test_score_positive_engagement(client):
     assert body["sentiment"]["label"] == "positive_engagement"
     assert 0.0 <= body["priority"]["priority_score"] <= 1.0
     assert body["priority"]["tier"] in {"hot", "warm", "cooling", "cold"}
+    # Segmentation enrichment is present.
+    seg = body["segmentation"]
+    assert seg["action_bucket"] in {"call_today", "rescue_email", "nurture", "lost"}
+    assert seg["playbook"]["email_subject"]
+    assert seg["insights"]["recommended_channel"]
 
 
 def test_score_empty_interaction_defaults_neutral(client):
@@ -76,6 +81,29 @@ def test_morning_brief(client):
     assert all(c["reachable"] for c in call)
     # Every "cooling" lead is flagged at-risk.
     assert all(c["is_cooling"] for c in body["cooling"])
+
+
+def test_dashboard_segments_json(client):
+    resp = client.get("/dashboard/segments")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data["buckets"].keys()) == {"call_today", "rescue_email", "nurture", "lost"}
+    assert data["total_leads"] >= 1
+    # Every lead is assigned to exactly one bucket.
+    assert sum(data["counts"].values()) == data["total_leads"]
+
+
+def test_dashboard_html_renders(client):
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Satış Dashboard" in resp.text
+
+
+def test_root_redirects_to_dashboard(client):
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code in (307, 308)
+    assert resp.headers["location"].endswith("/dashboard")
 
 
 def test_conversion_weight_override_changes_priority(client):

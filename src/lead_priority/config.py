@@ -29,8 +29,10 @@ DEMO_LEADS_JSON: Final[Path] = PROCESSED_DATA_DIR / "demo_leads.json"
 SCORING_MODEL_PATH: Final[Path] = MODELS_DIR / "lead_scoring_model.joblib"
 # The sentiment model is a fine-tuned HF transformer saved as a directory.
 SENTIMENT_MODEL_DIR: Final[Path] = MODELS_DIR / "sentiment_transformer"
+SEGMENTATION_MODEL_PATH: Final[Path] = MODELS_DIR / "segmentation_model.joblib"
 SCORING_METRICS_PATH: Final[Path] = MODELS_DIR / "lead_scoring_metrics.json"
 SENTIMENT_METRICS_PATH: Final[Path] = MODELS_DIR / "sentiment_metrics.json"
+SEGMENTATION_METRICS_PATH: Final[Path] = MODELS_DIR / "segmentation_metrics.json"
 
 # Public mirror of the X Education "Leads.csv" (Kaggle: lead-scoring-x-online-education).
 # Used only as a convenience fallback when the file is not already present locally.
@@ -131,3 +133,14 @@ DEFAULT_CONVERSION_WEIGHT: Final[float] = 0.7
 # latest interaction reads as disengaged/negative. These are the leads worth rescuing today.
 COOLING_MIN_CONVERSION_PROB: Final[float] = 0.45
 COOLING_SENTIMENT_LABELS: Final[tuple[str, ...]] = ("disengaged", "objection")
+
+# --------------------------------------------------------------------------------------
+# Behavioral segmentation (KMeans)
+# --------------------------------------------------------------------------------------
+N_BEHAVIORAL_SEGMENTS: Final[int] = 4
+SEGMENTATION_FEATURES: Final[tuple[str, ...]] = (
+    "log_time_spent",
+    "total_page_views",
+    "channel_diversity",
+    "time_per_visit",
+)

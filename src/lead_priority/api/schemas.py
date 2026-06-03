@@ -69,6 +69,7 @@ class ScoreResponse(BaseModel):
     sentiment: SentimentResult
     priority: PriorityResult
     is_cooling: bool
+    segmentation: dict[str, Any]
 
 
 class TopLead(BaseModel):
@@ -79,6 +80,12 @@ class TopLead(BaseModel):
     tier: str
     reachable: bool = True
     is_cooling: bool = False
+    action_bucket: str | None = None
+    action_bucket_label: str | None = None
+    category: str | None = None
+    category_label: str | None = None
+    behavioral_segment: str | None = None
+    recommended_channel: str | None = None
     last_interaction: str | None = None
 
 

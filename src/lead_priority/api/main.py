@@ -12,9 +12,12 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from pathlib import Path
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from lead_priority.api.logging_config import configure_logging
 from lead_priority.api.schemas import (
@@ -25,6 +28,9 @@ from lead_priority.api.schemas import (
     TopLeadsResponse,
 )
 from lead_priority.api.service import PriorityService
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 configure_logging()
 logger = logging.getLogger("lead_priority.api")
@@ -128,3 +134,33 @@ def morning_brief(
         n_call=n_call, n_cooling=n_cooling, conversion_weight=conversion_weight
     )
     return MorningBriefResponse(**brief)
+
+
+@app.get("/dashboard/segments")
+def dashboard_segments(
+    request: Request,
+    conversion_weight: float | None = Query(None, ge=0.0, le=1.0),
+) -> dict[str, Any]:
+    """Full segmented dashboard data (JSON): leads grouped into action buckets + playbooks."""
+    service = _get_service(request)
+    return service.dashboard(conversion_weight=conversion_weight)
+
+
+@app.get("/", include_in_schema=False)
+def index() -> RedirectResponse:
+    return RedirectResponse(url="/dashboard")
+
+
+@app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+def dashboard_ui(
+    request: Request,
+    conversion_weight: float | None = Query(None, ge=0.0, le=1.0),
+) -> HTMLResponse:
+    """Visual sales-rep dashboard (HTML): kanban of action buckets with playbooks."""
+    service = _get_service(request)
+    data = service.dashboard(conversion_weight=conversion_weight)
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {"data": data, "weight": conversion_weight},
+    )
