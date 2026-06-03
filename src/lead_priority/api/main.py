@@ -140,10 +140,14 @@ def morning_brief(
 def dashboard_segments(
     request: Request,
     conversion_weight: float | None = Query(None, ge=0.0, le=1.0),
+    per_bucket: int | None = Query(None, ge=1, le=100, description="Kova başına en fazla lead."),
 ) -> dict[str, Any]:
-    """Full segmented dashboard data (JSON): leads grouped into action buckets + playbooks."""
+    """Full segmented dashboard data (JSON): leads grouped into action buckets + playbooks.
+
+    Default returns *all* leads per bucket; pass ``per_bucket`` to cap each list.
+    """
     service = _get_service(request)
-    return service.dashboard(conversion_weight=conversion_weight)
+    return service.dashboard(conversion_weight=conversion_weight, per_bucket=per_bucket)
 
 
 @app.get("/", include_in_schema=False)
@@ -155,10 +159,14 @@ def index() -> RedirectResponse:
 def dashboard_ui(
     request: Request,
     conversion_weight: float | None = Query(None, ge=0.0, le=1.0),
+    per_bucket: int = Query(5, ge=1, le=50, description="Kova başına gösterilecek lead sayısı."),
 ) -> HTMLResponse:
-    """Visual sales-rep dashboard (HTML): kanban of action buckets with playbooks."""
+    """Visual sales-rep dashboard (HTML): kanban of action buckets with playbooks.
+
+    Shows the top ``per_bucket`` (default 5) leads per column for a focused view.
+    """
     service = _get_service(request)
-    data = service.dashboard(conversion_weight=conversion_weight)
+    data = service.dashboard(conversion_weight=conversion_weight, per_bucket=per_bucket)
     return templates.TemplateResponse(
         request,
         "dashboard.html",

@@ -215,8 +215,15 @@ class PriorityService:
         )[: max(n_cooling, 0)]
         return {"call_today": call_today, "cooling": cooling, "total_leads": len(scored)}
 
-    def dashboard(self, *, conversion_weight: float | None = None) -> dict[str, Any]:
-        """Full segmented dashboard: leads grouped into the four action buckets."""
+    def dashboard(
+        self, *, conversion_weight: float | None = None, per_bucket: int | None = 5
+    ) -> dict[str, Any]:
+        """Segmented dashboard: leads grouped into the four action buckets.
+
+        ``per_bucket`` caps how many leads are returned per bucket (default 5, for a focused
+        view); ``counts`` always reflects the *full* bucket size so the UI can show "+N daha".
+        Pass ``per_bucket=None`` to return every lead (used by the JSON endpoint).
+        """
         scored = self._score_demo_leads(conversion_weight=conversion_weight)
         # Sort within each bucket by priority (call/nurture) or value-at-risk (rescue/lost).
         buckets: dict[str, list[dict[str, Any]]] = {k: [] for k in ACTION_BUCKETS}
@@ -226,6 +233,10 @@ class PriorityService:
             buckets[key].sort(key=lambda r: r["priority_score"], reverse=True)
         for key in ("rescue_email", "lost"):
             buckets[key].sort(key=lambda r: r["conversion_probability"], reverse=True)
+
+        counts = {k: len(v) for k, v in buckets.items()}  # full sizes (before truncation)
+        if per_bucket is not None:
+            buckets = {k: v[: max(per_bucket, 0)] for k, v in buckets.items()}
 
         category_counts: dict[str, int] = {}
         segment_counts: dict[str, int] = {}
@@ -240,7 +251,9 @@ class PriorityService:
             "total_leads": len(scored),
             "bucket_labels": ACTION_BUCKETS,
             "buckets": buckets,
-            "counts": {k: len(v) for k, v in buckets.items()},
+            "counts": counts,
+            "shown": {k: len(v) for k, v in buckets.items()},
+            "per_bucket": per_bucket,
             "category_counts": category_counts,
             "segment_counts": segment_counts,
         }
