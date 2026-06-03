@@ -598,5 +598,20 @@ Bu repoda fairness *altyapısı* (grup metrikleri) bir sonraki adım olarak işa
 
 ---
 
+## Kısıtlar & beklentiler — nasıl karşılandı
+
+| Beklenti | Nasıl karşılandı (kanıt) |
+|---|---|
+| **Kod kalitesi: type hints** | 27/27 modülde `from __future__ import annotations`, 75+ tipli imza; Pydantic + `@dataclass` sözleşmeleri |
+| **Modüler yapı** | `src/lead_priority/` altında ayrık paketler: `data · features · scoring · sentiment · segmentation · priority · api`; tek dosyada toplanmış "tanrı modülü" yok |
+| **requirements.txt** | `requirements.txt` (servis) + `requirements-notebook.txt` (EDA) + `pyproject.toml` + `Makefile` + `Dockerfile` |
+| **Temiz kurulum talimatları** | README "Hızlı başlangıç": sıfır-kurulum (hazır imaj), klonla-çalıştır (Docker/pip), adım adım + sorun giderme |
+| **EDA notebook + production servis (kopya değil)** | Keşif `notebooks/01_eda_and_modeling.ipynb`'de; servis (`api/`) paketi **import eder**, notebook'tan kopya tek dosya **yok**; aynı pipeline eğitim=servis |
+| **LLM/AI asistan serbest** | Kullanım serbest; sentiment için sentetik veri + fine-tune transformer |
+| **GPU yok → küçük örnek + neden** | GPU yok; DistilBERT-multilingual CPU'da ~3 dk fine-tune; sentiment sentetik/küçük şablon setinde (neden + sınırı [Bölüm 3](#3-sentiment--niyet-analizi) caveat'inde); tabular tam set (9.240) |
+| **Derinlik > genişlik + eksiklerin gerekçesi** | Derinleşilen: scoring (kalibrasyon/lift/leakage), transformer sentiment, segmentasyon+playbook+dashboard, SHAP açıklama. Ertelenen (recency feature, gerçek-etiketli sentiment, fairness paneli, MLOps) "Future work"ta neden+nasıl ile yazılı |
+
+---
+
 ## Lisans / veri
 `Leads.csv` orijinal Kaggle lisansına tabidir. Bu repo eğitim/değerlendirme amaçlıdır.
