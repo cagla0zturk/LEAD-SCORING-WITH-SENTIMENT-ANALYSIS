@@ -56,6 +56,14 @@
     .empty { color: var(--muted); font-size: 12px; padding: 8px 6px; }
     a { color: #7dd3fc; }
     input[type=range] { accent-color: var(--call); }
+    .search { background: var(--panel); border: 1px solid var(--line); color: var(--text);
+      border-radius: 8px; padding: 7px 12px; font-size: 13px; min-width: 240px; }
+    .ctx { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+    .why { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .why-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .why-chip { font-size: 11px; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--line); }
+    .why-chip.up { background: #0c2e1c; color: #6ee7a8; }
+    .why-chip.down { background: #3a1620; color: #fca5b6; }
   </style>
 </head>
 <body>
@@ -71,13 +79,17 @@
       <span class="pill">İzle <b>{{ data.counts.nurture }}</b></span>
       <span class="pill">Kopan <b>{{ data.counts.lost }}</b></span>
     </div>
-    <form class="controls" method="get" action="/dashboard">
-      <label>Dönüşüm ağırlığı (w): <b id="wlabel">{{ '%.2f'|format(weight if weight is not none else 0.7) }}</b></label>
-      <input type="range" name="conversion_weight" min="0" max="1" step="0.05"
-             value="{{ weight if weight is not none else 0.7 }}"
-             oninput="document.getElementById('wlabel').innerText=(+this.value).toFixed(2)"
-             onchange="this.form.submit()" />
-    </form>
+    <div class="controls">
+      <input id="q" class="search" type="search" placeholder="Ara: lead, kategori, segment, metin…"
+             oninput="filterCards(this.value)" />
+      <form class="controls" method="get" action="/dashboard" style="gap:8px">
+        <label>w: <b id="wlabel">{{ '%.2f'|format(weight if weight is not none else 0.7) }}</b></label>
+        <input type="range" name="conversion_weight" min="0" max="1" step="0.05"
+               value="{{ weight if weight is not none else 0.7 }}"
+               oninput="document.getElementById('wlabel').innerText=(+this.value).toFixed(2)"
+               onchange="this.form.submit()" />
+      </form>
+    </div>
   </header>
 
   <div class="board">
@@ -94,6 +106,7 @@
           <span class="lead-id">{{ lead.lead_id }}</span>
           <span class="badge b-{{ lead.tier }}">{{ lead.tier }}</span>
         </div>
+        {% if lead.context %}<div class="ctx">{{ lead.context }}</div>{% endif %}
         <div class="metrics">
           <span>Öncelik <b>{{ '%.2f'|format(lead.priority_score) }}</b></span>
           <span>Dönüşüm <b>{{ '%.0f'|format(lead.conversion_probability * 100) }}%</b></span>
@@ -105,6 +118,18 @@
         </div>
         <div class="chan">Önerilen kanal: <b>{{ lead.recommended_channel }}</b></div>
         {% if lead.last_interaction %}<div class="note">“{{ lead.last_interaction }}”</div>{% endif %}
+
+        {% if lead.explanation %}
+        <div class="why">
+          <span class="why-title">Skor neden?</span>
+          {% for f in lead.explanation %}
+          <span class="why-chip {{ 'up' if f.direction == 'artırıyor' else 'down' }}"
+                title="{{ f.label }}: dönüşümü {{ f.direction }}">
+            {{ '▲' if f.direction == 'artırıyor' else '▼' }} {{ f.label }}
+          </span>
+          {% endfor %}
+        </div>
+        {% endif %}
 
         <details>
           <summary>Nasıl yaklaşmalı? (playbook)</summary>
@@ -134,5 +159,21 @@
     </section>
     {% endfor %}
   </div>
+
+  <script>
+    function filterCards(query) {
+      const q = (query || "").trim().toLowerCase();
+      document.querySelectorAll(".col").forEach(col => {
+        let visible = 0;
+        col.querySelectorAll(".card").forEach(card => {
+          const match = !q || card.textContent.toLowerCase().includes(q);
+          card.style.display = match ? "" : "none";
+          if (match) visible++;
+        });
+        const count = col.querySelector(".count");
+        if (count) count.textContent = visible;
+      });
+    }
+  </script>
 </body>
 </html>

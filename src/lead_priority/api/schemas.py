@@ -69,6 +69,8 @@ class ScoreResponse(BaseModel):
     sentiment: SentimentResult
     priority: PriorityResult
     is_cooling: bool
+    explanation: list[dict[str, Any]] = []
+    context: str = ""
     segmentation: dict[str, Any]
 
 

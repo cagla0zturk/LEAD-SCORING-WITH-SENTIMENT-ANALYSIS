@@ -27,6 +27,10 @@ DEMO_LEADS_JSON: Final[Path] = PROCESSED_DATA_DIR / "demo_leads.json"
 
 # Trained artifacts
 SCORING_MODEL_PATH: Final[Path] = MODELS_DIR / "lead_scoring_model.joblib"
+# Uncalibrated tuned LightGBM pipeline, kept purely for per-lead score explanations
+# (LightGBM native SHAP via pred_contrib). Calibration changes probabilities but not the
+# ranking logic, so this faithfully explains "why is this lead scored high/low?".
+SCORING_EXPLAINER_PATH: Final[Path] = MODELS_DIR / "lead_scoring_explainer.joblib"
 # The sentiment model is a fine-tuned HF transformer saved as a directory.
 SENTIMENT_MODEL_DIR: Final[Path] = MODELS_DIR / "sentiment_transformer"
 SEGMENTATION_MODEL_PATH: Final[Path] = MODELS_DIR / "segmentation_model.joblib"

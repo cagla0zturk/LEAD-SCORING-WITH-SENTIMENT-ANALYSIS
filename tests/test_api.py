@@ -51,6 +51,11 @@ def test_score_positive_engagement(client):
     assert seg["action_bucket"] in {"call_today", "rescue_email", "nurture", "lost"}
     assert seg["playbook"]["email_subject"]
     assert seg["insights"]["recommended_channel"]
+    # Score explanation present with directional factors.
+    assert len(body["explanation"]) >= 1
+    factor = body["explanation"][0]
+    assert {"feature", "label", "contribution", "direction"} <= set(factor)
+    assert factor["direction"] in {"artırıyor", "azaltıyor"}
 
 
 def test_score_empty_interaction_defaults_neutral(client):

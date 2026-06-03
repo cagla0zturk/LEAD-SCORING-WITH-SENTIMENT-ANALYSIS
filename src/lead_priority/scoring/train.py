@@ -38,6 +38,7 @@ from lead_priority.config import (
     MODELS_DIR,
     RANDOM_SEED,
     REPORTS_DIR,
+    SCORING_EXPLAINER_PATH,
     SCORING_METRICS_PATH,
     SCORING_MODEL_PATH,
     TARGET_COLUMN,
@@ -219,6 +220,8 @@ def train_lead_scoring_model(
         },
     }
     joblib.dump(artifact, SCORING_MODEL_PATH)
+    # Persist the tuned, uncalibrated LightGBM pipeline for per-lead SHAP explanations.
+    joblib.dump(best_lgbm, SCORING_EXPLAINER_PATH)
     SCORING_METRICS_PATH.write_text(json.dumps(metrics, indent=2))
     logger.info("Saved lead-scoring model to %s", SCORING_MODEL_PATH)
 

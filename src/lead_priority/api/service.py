@@ -13,6 +13,7 @@ from typing import Any
 
 from lead_priority.config import DEFAULT_CONVERSION_WEIGHT, DEMO_LEADS_JSON
 from lead_priority.priority.combine import combine_priority, is_cooling
+from lead_priority.scoring.explain import ScoreExplainer
 from lead_priority.scoring.model import LeadScorer
 from lead_priority.segmentation import (
     ACTION_BUCKETS,
@@ -36,6 +37,16 @@ def _is_reachable(features: dict[str, Any]) -> bool:
     return not (dne and dnc)
 
 
+def _lead_context(features: dict[str, Any]) -> str:
+    """Short human-readable context line from real lead fields (no fake names)."""
+    parts: list[str] = []
+    for key in ("What is your current occupation", "Specialization", "City", "Lead Source"):
+        val = features.get(key)
+        if val is not None and str(val).strip() and str(val).strip().lower() != "nan":
+            parts.append(str(val).strip())
+    return " · ".join(parts)
+
+
 class PriorityService:
     """Loads the models + demo leads and produces scored, segmented output."""
 
@@ -45,11 +56,13 @@ class PriorityService:
         sentiment: SentimentClassifier,
         demo_leads: list[dict[str, Any]],
         segmenter: BehavioralSegmenter | None = None,
+        explainer: ScoreExplainer | None = None,
     ) -> None:
         self.scorer = scorer
         self.sentiment = sentiment
         self.demo_leads = demo_leads
         self.segmenter = segmenter
+        self.explainer = explainer
 
     @classmethod
     def load(cls, *, demo_leads_path: Path = DEMO_LEADS_JSON) -> "PriorityService":
@@ -60,9 +73,20 @@ class PriorityService:
         except FileNotFoundError:
             segmenter = None
             logger.warning("Behavioral segmentation model missing; segment labels disabled.")
+        try:
+            explainer: ScoreExplainer | None = ScoreExplainer.load()
+        except FileNotFoundError:
+            explainer = None
+            logger.warning("Score explainer missing; per-lead explanations disabled.")
         demo_leads = _load_demo_leads(demo_leads_path)
         logger.info("PriorityService ready (%d demo leads)", len(demo_leads))
-        return cls(scorer=scorer, sentiment=sentiment, demo_leads=demo_leads, segmenter=segmenter)
+        return cls(
+            scorer=scorer,
+            sentiment=sentiment,
+            demo_leads=demo_leads,
+            segmenter=segmenter,
+            explainer=explainer,
+        )
 
     # -- enrichment --------------------------------------------------------------------
     def _enrich(
@@ -90,6 +114,7 @@ class PriorityService:
         insights = approach_insights(features, sentiment_pred.label, objection=obj_reason)
         playbook = build_playbook(category, features, insights)
         segment = self.segmenter.assign_one(features) if self.segmenter else None
+        explanation = self.explainer.explain(features) if self.explainer else []
 
         return {
             "conversion_probability": round(conversion_probability, 4),
@@ -97,6 +122,8 @@ class PriorityService:
             "sentiment": sentiment_pred.as_dict(),
             "priority": priority.as_dict(),
             "is_cooling": is_cooling(conversion_probability, sentiment_pred.label),
+            "explanation": explanation,
+            "context": _lead_context(features),
             "segmentation": {
                 "action_bucket": bucket,
                 "action_bucket_label": ACTION_BUCKETS[bucket],
@@ -158,6 +185,8 @@ class PriorityService:
                     "recommended_channel": seg["insights"]["recommended_channel"],
                     "insights": seg["insights"],
                     "playbook": seg["playbook"],
+                    "explanation": enriched["explanation"],
+                    "context": enriched["context"],
                     "last_interaction": text,
                 }
             )

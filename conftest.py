@@ -26,6 +26,7 @@ def trained_artifacts(tmp_path_factory: pytest.TempPathFactory):
 
     from lead_priority.config import (
         DEMO_LEADS_JSON,
+        SCORING_EXPLAINER_PATH,
         SCORING_MODEL_PATH,
         SEGMENTATION_MODEL_PATH,
         SENTIMENT_LABELS,
@@ -42,7 +43,7 @@ def trained_artifacts(tmp_path_factory: pytest.TempPathFactory):
     if not SENTIMENT_MODEL_DIR.exists():
         # Small but real fine-tune so the transformer is usable in tests yet fast.
         train_sentiment_model(n_per_class=150, epochs=2)
-    if not SCORING_MODEL_PATH.exists():
+    if not (SCORING_MODEL_PATH.exists() and SCORING_EXPLAINER_PATH.exists()):
         train_lead_scoring_model(quick=True, make_plots=False)
     if not SEGMENTATION_MODEL_PATH.exists():
         train_segmentation_model(df=load_raw_leads())
