@@ -87,6 +87,18 @@ python3 -m uvicorn lead_priority.api.main:app --port 8000
 > Build/eğitim birkaç dakika sürer (transformer fine-tune CPU'da ~3 dk) — bu beklenen davranıştır.
 > Eğitilmiş modeller bilinçli olarak repoda tutulmaz; `docker build` / `train_all` üretir.
 
+#### Build sırasında indirme/SSL hatası alırsanız
+
+`SSL record layer failure` veya torch indirilirken kopma görürseniz bu **ağ kaynaklıdır**
+(büyük ~190MB PyTorch wheel'i indirilirken bağlantı düşer):
+
+- **Tekrar `docker build` çalıştırın.** Dockerfile pip cache mount kullanır; tamamlanan
+  paketler önbellekte kalır, yeniden deneme kaldığı yerden (torch'tan) devam eder.
+- **VPN / kurumsal proxy / antivirüs SSL taraması** bu hatanın en sık nedenidir; mümkünse
+  geçici kapatın veya farklı bir ağ (ör. telefon hotspot) deneyin, sonra tekrar build edin.
+- Docker yoksa Python yolunda da aynı geçerli: `pip install ...` komutunu tekrar çalıştırın;
+  pip indirdiği wheel'leri önbelleğe alır ve yalnızca eksik olanı yeniden ind.
+
 ### Adım adım (detaylı)
 
 > Komutlarda `python3` kullanın. Bazı sistemlerde bare `python` komutu yoktur

@@ -8,21 +8,31 @@ RUN apt-get update \
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=180 \
+    PIP_RETRIES=20 \
+    PIP_PREFER_BINARY=1 \
     LOG_LEVEL=INFO
 
 WORKDIR /app
 
-# Install dependencies first to maximise layer caching.
+# Install the large CPU PyTorch wheel (~190 MB) FIRST, in its own layer with a pip cache
+# mount + many retries. On a flaky network this means a dropped download only ever re-pulls
+# torch (everything else stays cached), and a simple `docker build` re-run resumes from here.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --extra-index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<3.0"
+
+# Then the rest of the dependencies (also cached across rebuilds).
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Copy the project and install the package.
 COPY pyproject.toml ./
 COPY src ./src
 COPY scripts ./scripts
 COPY data/raw/Leads.csv ./data/raw/Leads.csv
-RUN pip install --no-cache-dir -e .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -e .
 
 # Build data artifacts and train models at image-build time so the container is
 # immediately serveable. (For large/real workloads you would instead mount a model
