@@ -60,7 +60,39 @@ import eder; notebook'tan kopyalanmış tek dosyalık servis **yoktur**.
 
 ## Hızlı başlangıç
 
-### Klonla ve çalıştır (tek akış)
+### Sıfır kurulumla çalıştır (önerilen — hazır imaj)
+
+İmaj (transformer dahil, modeller içine gömülü) GitHub Actions tarafından build edilip
+GHCR'a yayınlanır. Tek komut — build yok, indirme yok, eğitim yok:
+
+```bash
+docker run --rm -p 8000:8000 ghcr.io/cagla0zturk/lead-priority:latest
+# Tarayıcı:  http://localhost:8000/dashboard   (Swagger: /docs)
+```
+
+> İlk pull birkaç GB'tır (torch + fine-tune edilmiş çok dilli transformer + eğitilmiş modeller
+> imajın içinde). Ama yalnızca **imaj indirilir** — yavaş/filtreli ağlarda torch/HF indirip
+> CPU'da eğitim yapma derdi olmaz. (İmaj public değilse repo sahibi GHCR paketini bir kez
+> "public" yapar; bkz. aşağıdaki "Hazır imajı yayınlama".)
+
+<details>
+<summary><b>Hazır imajı yayınlama (repo sahibi, tek seferlik)</b></summary>
+
+İmaj GitHub'ın hızlı ağında otomatik üretilir; kimsenin lokalde build etmesi gerekmez:
+
+1. `.github/workflows/docker-publish.yml` `main`'e merge edilince **Actions** çalışır,
+   imajı build edip (modeller içeride eğitilir) `ghcr.io/cagla0zturk/lead-priority:latest`
+   olarak yayınlar (Actions sekmesinden ilerlemeyi izleyebilirsiniz, ~15-20 dk).
+2. İlk yayından sonra GHCR paketini **public** yapın: GitHub → profil/repo **Packages** →
+   `lead-priority` → *Package settings* → *Change visibility* → **Public**.
+3. Artık link'i alan herkes yalnızca şunu çalıştırır:
+   `docker run --rm -p 8000:8000 ghcr.io/cagla0zturk/lead-priority:latest`
+
+> İmaj adı sabit (`ghcr.io/cagla0zturk/lead-priority`); farklı bir hesap/repo için
+> workflow'daki `IMAGE` değişkenini güncelleyin.
+</details>
+
+### Klonla ve çalıştır (kaynaktan)
 
 **Docker ile (önerilen — en az kurulum):**
 
