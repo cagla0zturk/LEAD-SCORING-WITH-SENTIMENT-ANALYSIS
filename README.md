@@ -401,16 +401,56 @@ FastAPI, dört endpoint (Swagger: `/docs`):
 | Method | Path | Açıklama |
 |---|---|---|
 | `GET` | `/health` | Liveness + modeller yüklü mü |
-| `POST` | `/score` | Lead feature'ları + son etkileşim metni → P(convert) + sentiment + öncelik + `is_cooling` |
+| `POST` | `/score` | Lead feature'ları + son etkileşim metni → P(convert) + sentiment + öncelik + `is_cooling` + segmentasyon (persona/kova/playbook) + `explanation` ("skor neden?") |
 | `GET` | `/leads/top?n=5` | Lead listesini öncelik skoruna göre sıralar, en öncelikli N'i döner |
 | `GET` | `/dashboard/brief` | **Sabah brief'i**: `call_today` (bugün ara) + `cooling` (soğuyanlar) |
+| `GET` | `/dashboard/segments` | Tüm lead'leri 4 aksiyon kovasına ayıran segmentli veri (JSON) + playbook'lar |
+| `GET` | `/dashboard` | **Görsel UI** (kanban): bkz. [Bölüm 7](#7-segmentasyon-persona-ve-görsel-dashboard-genişletme) |
 
-- `/dashboard/brief` görevdeki senaryoyu doğrudan karşılar: "şu 5 lead'i bugün ara, bu üçü
-  soğuyor". Tüm lead'ler **tek batch** transformer + tek tahmin geçişiyle skorlanır.
+- `/dashboard/brief` ve `/dashboard` görevdeki senaryoyu doğrudan karşılar: "şu 5 lead'i bugün
+  ara, bu üçü soğuyor". Tüm lead'ler **tek batch** transformer + tek tahmin geçişiyle skorlanır.
 - Her istek **loglanır** (method, path, status, latency); `LOG_LEVEL` env ile ayarlanır.
 - Modeller startup'ta (lifespan) **bir kez** yüklenir; artefakt yoksa API ayağa kalkar ama
   ilgili endpoint'ler `503` döner (graceful degradation).
 - Girdi/çıktı Pydantic şemalarıyla doğrulanır.
+
+---
+
+## 7. Segmentasyon, persona ve görsel dashboard (genişletme)
+
+Görevdeki "satış temsilcisi sabah dashboard'da aksiyon alabilsin" hedefini bir adım öteye
+taşıyan katman. Skor + sentiment çıktısını **doğrudan eyleme** dönüştürür (kod:
+`src/lead_priority/segmentation/`, UI: `src/lead_priority/api/templates/dashboard.html`).
+
+**Aksiyon kovaları (dashboard sütunları).** Her lead tek bir kovaya düşer:
+`Bugün Ara` · `Mail ile Kurtar` (değerliydi ama soğuyan) · `İzle / Besle` · `Kopanlar`
+(ulaşılamayan veya düşük değer + ilgisiz). Kurallar açıklanabilir ve ürünce ayarlanabilir
+(`segmentation/rules.py: action_bucket`).
+
+**Lead kategorileri (persona).** 8 persona: `ready_to_buy`, `price_objection`,
+`timing_objection`, `competitor_objection`, `information_seeker`, `going_cold`,
+`low_intent`, `needs_nurturing`. İtiraz nedeni (fiyat/zaman/rakip/yetki) etkileşim
+metninden TR+EN anahtar kelimelerle ayrıştırılır — her lead'e aynı şekilde yaklaşılmaz.
+
+**Yaklaşım içgörüleri.** Her lead için: *ilgisini çeken noktalar*, *dikkat/kaçınılacak
+noktalar*, *konuşma noktaları* ve *önerilen kanal* (telefon/e-posta; Do Not Call/Email
+tercihlerine saygılı). Lead'in mesleği, uzmanlık alanı ve kaynağından türetilir.
+
+**Persona playbook'ları.** Her kategoriye özel **hazır e-posta** (konu + gövde) ve
+**telefon açılışı**, lead alanlarından kişiselleştirilmiş (`segmentation/playbooks.py`).
+
+**Davranışsal segmentasyon (KMeans).** Etkileşim feature'ları üzerinde kümeleme; kümeler
+etkileşim profiline göre okunabilir adlandırılır (ör. "Yüksek etkileşimli",
+"Pasif / Düşük etkileşim"). Eğitimde fit edilir, artefakt olarak saklanır
+(`segmentation/cluster.py`).
+
+**"Skor neden?" (açıklanabilirlik).** Her kartta, dönüşüm skorunu en çok etkileyen
+faktörler yön oklarıyla (▲ artırıyor / ▼ azaltıyor). LightGBM'in **native `pred_contrib`**
+(tam tree-SHAP) değerleri kullanılır — ekstra `shap` bağımlılığı yok; one-hot kolonlar
+orijinal feature'a toplulaştırılır (`scoring/explain.py`).
+
+**Görsel UI.** `GET /dashboard` — kanban düzeni, renkli tier rozetleri, kart başına açılır
+playbook, dönüşüm ağırlığı (w) slider'ı ve istemci-tarafı **arama/filtre** çubuğu.
 
 ---
 
@@ -481,8 +521,18 @@ Bu repoda fairness *altyapısı* (grup metrikleri) bir sonraki adım olarak işa
   eksik olan tek şey gerçek, etiketli yazışma verisi. Rep'lerin etiketlediği gerçek metinlerle
   fine-tune + **aktif öğrenme** ile etiket maliyetini düşürme; cooling kuralını öğrenilmiş
   bir "risk" modeline yükseltme.
-- **SHAP açıklanabilirlik + fairness paneli:** `/score` yanıtına başlıca itici feature'lar;
-  grup bazlı performans izleme.
+- **Fairness paneli:** "skor neden?" açıklaması (LightGBM SHAP) artık `/score` ve
+  dashboard'da **mevcut** (bkz. Bölüm 7); eksik kalan, korumalı/proxy özniteliklerde
+  (ülke, şehir) **grup bazlı** capture/precision izleyen bir fairness raporu.
+- **Etkileşim-tepki (response) verisi — öğrenen playbook'lar.** Şu an playbook'lar kural
+  tabanlı sabit şablonlar. Bir lead arandığında/mail atıldığında, **konuşmadaki veya
+  maildeki her mesaja/soruya verdiği tepkiler** (olumlu/olumsuz yanıt, hangi itiraz,
+  hangi konuda ilgi/soğuma) yapılandırılmış veri olarak tutulursa, bu hem (a) sentiment
+  modelini **gerçek etiketle** besler, hem de (b) "hangi mesaj/konu hangi persona'da işe
+  yarıyor?" analizini (mesaj-etkililik / **next-best-action**) mümkün kılar. Böylece
+  playbook'lar sabit şablon olmaktan çıkıp **veriyle öğrenilen, kişiye/persona'ya özel
+  önerilere** dönüşür; A/B testiyle hangi açılış cümlesi/e-posta konusunun dönüşümü
+  artırdığı ölçülebilir.
 - **Maliyet-duyarlı eşik optimizasyonu:** temas maliyeti / müşteri değeri ile expected-value
   bazlı eşik; rep kapasitesine göre günlük top-N.
 - **MLOps:** model registry + sürümleme, batch scoring job, drift monitor (PSI/Brier) ve
