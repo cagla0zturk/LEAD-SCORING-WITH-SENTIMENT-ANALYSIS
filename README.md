@@ -60,6 +60,35 @@ import eder; notebook'tan kopyalanmış tek dosyalık servis **yoktur**.
 
 ## Hızlı başlangıç
 
+### Klonla ve çalıştır (tek akış)
+
+**Docker ile (önerilen — en az kurulum):**
+
+```bash
+git clone https://github.com/cagla0zturk/LEAD-SCORING-WITH-SENTIMENT-ANALYSIS.git
+cd LEAD-SCORING-WITH-SENTIMENT-ANALYSIS
+docker build -t lead-priority .          # veri + 3 modeli (LightGBM, transformer, KMeans) eğitir
+docker run --rm -p 8000:8000 lead-priority
+# Tarayıcı:  http://localhost:8000/dashboard   (Swagger: /docs)
+```
+
+**Docker yoksa (Python 3.10+):**
+
+```bash
+git clone https://github.com/cagla0zturk/LEAD-SCORING-WITH-SENTIMENT-ANALYSIS.git
+cd LEAD-SCORING-WITH-SENTIMENT-ANALYSIS
+python3 -m pip install -r requirements.txt && python3 -m pip install -e .
+python3 -m scripts.prepare_data && python3 -m scripts.train_all
+python3 -m uvicorn lead_priority.api.main:app --port 8000
+# Tarayıcı:  http://localhost:8000/dashboard
+```
+
+> İlk çalıştırmada internet gerekir (pip paketleri + HuggingFace'ten ~540MB transformer).
+> Build/eğitim birkaç dakika sürer (transformer fine-tune CPU'da ~3 dk) — bu beklenen davranıştır.
+> Eğitilmiş modeller bilinçli olarak repoda tutulmaz; `docker build` / `train_all` üretir.
+
+### Adım adım (detaylı)
+
 > Komutlarda `python3` kullanın. Bazı sistemlerde bare `python` komutu yoktur
 > (`bash: python: command not found`). Sisteminizde `python` çalışıyorsa onu da
 > kullanabilirsiniz; `Makefile` varsayılan olarak `python3` kullanır (`make train PYTHON=python`
