@@ -470,6 +470,31 @@ tüm preprocessing pipeline içinde sadece train'de fit edildi.
   paylaşılan sözlükle ele alır; göreve özgü etiketlerimiz olduğu için fine-tune, zero-shot
   LLM'e tercih edildi. CPU'da ~3 dk fine-tune; küçük, hızlı, self-contained artefakt.
 
+### Araç ve kütüphane seçimleri (hangi araç, neden)
+
+| Araç / kütüphane | Nerede kullanıldı | Neden bu seçildi |
+|---|---|---|
+| **pandas / numpy** | veri yükleme, feature engineering | Tabular veri için fiili standart; hızlı, olgun. |
+| **scikit-learn** (`Pipeline`, `ColumnTransformer`) | preprocessing | Feature eng. + impute + scale + one-hot'u **tek pipeline**'da tutar → train=serving simetrisi, feature-skew bug'ı yapısal olarak engellenir. |
+| **scikit-learn** `LogisticRegression` | baseline scoring | Yorumlanabilir, hızlı, güçlü referans; "modern model gerçekten kazandırıyor mu?" sorusunu dürüst yanıtlatır. |
+| **LightGBM** | modern scoring | Tablo verisinde hızlı/güçlü gradient boosting; **native `pred_contrib`** ile ekstra bağımlılık olmadan SHAP açıklaması; CPU-dostu. |
+| **scikit-learn** `CalibratedClassifierCV` (isotonic) | olasılık kalibrasyonu | Skorların gerçek olasılık gibi okunması (rep beklentisi + FP maliyeti yönetimi için kritik). |
+| **scikit-learn** `RandomizedSearchCV` | hyperparameter tuning | Grid'e göre daha verimli arama; sınırlı CPU bütçesine uygun. |
+| **scikit-learn** `KMeans` + `StandardScaler` | davranışsal segmentasyon | Basit, hızlı, yorumlanabilir kümeleme; "segmentasyon çalışması" için yeterli. |
+| **PyTorch (CPU)** + **Hugging Face `transformers`** | sentiment fine-tune | Çok dilli (TR+EN) DistilBERT/XLM-R erişimi; saf PyTorch döngüsü ile şeffaf, az bağımlılıklı eğitim. CPU build → küçük imaj, GPU gerektirmez. |
+| **FastAPI** + **uvicorn** | servis | Async, otomatik **Swagger/OpenAPI**, Pydantic entegrasyonu; production kalitesinde ve hafif. |
+| **Pydantic** | istek/yanıt şemaları | Tip güvenli, otomatik doğrulanan API sözleşmeleri. |
+| **Jinja2** | görsel dashboard | Sunucu-render HTML; ayrı bir frontend build'i / JS framework'ü gerektirmez → self-contained, kolay çalıştırılır. |
+| **joblib** | model serileştirme | sklearn/LightGBM artefaktları için fiili standart (numpy dizilerinde verimli). |
+| **matplotlib** | rapor grafikleri | gain/calibration/confusion PNG'leri; yalnızca eğitimde, API'ye yük bindirmez. |
+| **pytest** + **httpx** (`TestClient`) | testler | Birim testleri + gerçek HTTP ile uçtan uca API testleri. |
+| **Docker** | paketleme/dağıtım | Tek komutla tekrarlanabilir kurulum; `libgomp` gibi sistem bağımlılıklarını da içerir. |
+| **requests** | veri indirme | `Leads.csv` yoksa public mirror'dan self-heal indirme. |
+
+Genel ilke: **CPU/GPU'suz ortamda hızlı, tekrarlanabilir ve servis-dostu** kalmak; her yerde
+en ağır aracı değil, işi açıklanabilir biçimde çözen en hafif aracı seçmek (ör. sentiment'te
+dev LLM yerine fine-tune DistilBERT; birleşik skorda meta-model yerine şeffaf kural).
+
 ### Sonuçlar
 LightGBM ROC-AUC **0.890** / PR-AUC **0.835** / Brier **0.129**; top-%20 capture **%46**,
 lift **2.3×**. Confusion matrix + gain + calibration grafikleri `reports/` altında.
