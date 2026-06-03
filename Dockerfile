@@ -15,9 +15,15 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install the large CPU PyTorch wheel (~190 MB) FIRST, in its own layer with a pip cache
-# mount + many retries. On a flaky network this means a dropped download only ever re-pulls
-# torch (everything else stays cached), and a simple `docker build` re-run resumes from here.
+# (Optional) install any pre-downloaded wheels first. On flaky networks where pip cannot
+# finish the ~190 MB torch download, drop a resumably-downloaded torch wheel into ./wheels/
+# (see README "Ağ sorunluysa"). This layer is a no-op when ./wheels/ has no .whl files.
+COPY wheels/ /wheels/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    sh -c 'if ls /wheels/*.whl >/dev/null 2>&1; then pip install /wheels/*.whl; else echo "no prefetched wheels; using index"; fi'
+
+# Install the large CPU PyTorch wheel (~190 MB) in its own layer with a pip cache mount.
+# If torch was already installed from a prefetched wheel above, this is a no-op (no download).
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --extra-index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<3.0"
 

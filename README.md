@@ -99,6 +99,30 @@ python3 -m uvicorn lead_priority.api.main:app --port 8000
 - Docker yoksa Python yolunda da aynı geçerli: `pip install ...` komutunu tekrar çalıştırın;
   pip indirdiği wheel'leri önbelleğe alır ve yalnızca eksik olanı yeniden ind.
 
+**Israrla `SSL record layer failure` alıyorsanız (kopuyor, bitmiyor):** pip 192 MB'lık torch
+indirmesini *kaldığı yerden devam ettiremez*; ağınız tek seferde bu kadar büyük indirmeyi
+tamamlayamıyor olabilir. İki kalıcı çözüm:
+
+1. **Ağı değiştirin (en hızlısı):** VPN'i ve antivirüs HTTPS/SSL taramasını geçici kapatın
+   ya da telefon hotspot gibi farklı bir ağ deneyin, sonra tekrar `docker build`.
+2. **torch wheel'ini önceden, devam ettirilebilir şekilde indirin** (kopsa bile kaldığı
+   yerden sürer) ve `wheels/` klasörüne koyun — Docker build onu otomatik kullanır,
+   indirmeyi atlar:
+
+   ```bash
+   # Windows (PowerShell/CMD) — curl.exe -C - kesinti olursa kaldığı yerden devam eder.
+   # Komutu indirme tamamlanana kadar (gerekirse birkaç kez) çalıştırın:
+   curl.exe -L -C - -o "wheels\torch-2.12.0+cpu-cp312-cp312-manylinux_2_28_x86_64.whl" ^
+     "https://download.pytorch.org/whl/cpu/torch-2.12.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl"
+
+   # macOS / Linux:
+   curl -L -C - -o "wheels/torch-2.12.0+cpu-cp312-cp312-manylinux_2_28_x86_64.whl" \
+     "https://download.pytorch.org/whl/cpu/torch-2.12.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl"
+
+   docker build -t lead-priority .   # wheels/ içindeki torch otomatik kurulur
+   ```
+   (Dosya tam inmeden build başlatmayın; `wheels/*.whl` git'e gönderilmez, sadece yerelde kalır.)
+
 ### Adım adım (detaylı)
 
 > Komutlarda `python3` kullanın. Bazı sistemlerde bare `python` komutu yoktur
